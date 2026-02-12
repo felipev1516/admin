@@ -26,11 +26,11 @@ import argparse
 import os
 
 if __name__ == "__main__":
-    import socket
+    
     import sys
     import subprocess
     import asyncio
-    from signal import SIGINT
+    
     from argparse import ArgumentParser
     
     parser = None
@@ -116,10 +116,7 @@ if __name__ == "__main__":
                 if args.remote is None:
                     command = str.upper(input("Remote Mode? (YES/NO, ON/OFF, 1/0): "))
                 else:
-                    if str(args.remote).upper().equals("0"):
-                        command = "0"
-                    else:
-                        command = "1"
+                   command = str(args.remote).upper()
                 
                 if command == "1" or command == "ON" or command == "Y" or command == "YES":
                     command = "0.0.0.0"
@@ -138,8 +135,7 @@ if __name__ == "__main__":
                     print("Invalid Input. Please select (YES/NO, ON/OFF, 1/0).")
             except ValueError:
                 print("Invalid Input. Please select (YES/NO, ON/OFF, 1/0).")
-    
-            
+
         return command
     
     async def test_connection(ip: str, port: int) -> None:
@@ -152,41 +148,54 @@ if __name__ == "__main__":
             print(f"Failed to connect to {ip}:{port} - {e}")
             writer.close()
             await writer.wait_closed()
-
+    
+    # Only use ainput for debugging purposes
+    # Link: https://stackoverflow.com/questions/58454190/python-async-waiting-for-stdin-input-while-doing-other-stuff
+    async def ainput(string: str) ->str:
+        await asyncio.to_thread(sys.stdout.write, f'{string}')
+        return (await asyncio.to_thread(sys.stdin.readline)).rstrip('\n')
+    
     # Info: https://docs.python.org/3/glossary.html#term-coroutine
     # Coroutine to handle receiving data
     async def receive_data(reader: asyncio.StreamReader) -> None:
         try:
-            async with asyncio.timeout(3):
-                data = await reader.read(1024)
+            #async with asyncio.timeout(1):
+            data = await reader.read(1024)
             print(f"Received: {data.decode()}")
         except asyncio.CancelledError:
-            return
+            pass
         except asyncio.TimeoutError:
-            return
+            pass
+        except KeyboardInterrupt:
+            pass
     
     # coroutine to handle sending data
     async def send_data(writer: asyncio.StreamWriter) -> None:
         try:
-            async with asyncio.timeout(5):
-                message = input("(Ctrl+C To Exit)\n>:")
-                writer.write(message.encode())
-            writer.drain()
+            #async with asyncio.timeout(1):
+                #message = await input("(Ctrl+C To Exit)\n>:")
+            message = await ainput("(Ctrl+C To Exit)\n>:")
+            writer.write(message.encode())
+            await writer.drain()
         except asyncio.CancelledError:
-            return
+            pass
         except asyncio.TimeoutError:
             return
+        except KeyboardInterrupt:
+            pass
+        
+   
     
     async def communication(reader:asyncio.StreamReader,writer:asyncio.StreamWriter) -> None:
         try:
             while True:
                 try:
-                    print("Communication 1")
+                    #print("Communication 1")
                     # Create a coroutine to receive data
                     # This Task will print client response
-                    
-                    await receive_data(reader)
-                    await send_data(writer)
+                    await asyncio.gather(asyncio.to_thread(receive_data(reader)),
+                                         asyncio.to_thread(send_data(writer))
+                                         )
                 except KeyboardInterrupt:
                     writer.close()
                     await writer.wait_closed()
@@ -218,29 +227,30 @@ if __name__ == "__main__":
         try:
             async with asyncio.timeout(300):
                 reader, writer = await asyncio.open_connection(host=args.ip,port=args.port)
-                await communication(reader,writer)
-        #except TimeoutError:
-        #    print("TIMEOUT ERROR: Host not available Disconnecting")
+            await communication(reader,writer)
+        except asyncio.TimeoutError:
+            print("TIMEOUT ERROR: Host not available Disconnecting")
         except asyncio.CancelledError:
             print(f"Connection Error")
         except KeyboardInterrupt:
             print(f"Closing...")
             
     
-    def prompt():
-
+    def prompt() -> bool:
         if args.mode is None:
             args.mode = _mode()
-       
-        if args.mode == "CLIENT": 
+        if str(args.mode).upper() == "CLIENT": 
             if args.ip is None:
                 args.ip = _ip()
             if args.port is None:
                 args.port = _port()
-        else:
+            return True
+        elif str(args.mode).upper() == "HOST":
             args.ip = _remote()
-            args.port = 10000
-        return
+            return True
+        else:
+            print(f"An Error has occured")
+            return False
     
     '''
     Note: We already have a exception handler for keyboard interuption in the main function below
@@ -254,8 +264,8 @@ if __name__ == "__main__":
             client()
         else:
             # Create two concurrent loops for client and server
-            prompt()
-            asyncio.run(server()) if str(args.mode).upper() == "HOST" else asyncio.run(client())
+            if prompt():
+                asyncio.run(server(), debug=True) if str(args.mode).upper() == "HOST" else asyncio.run(client(),debug=True)
                 
                     
         
